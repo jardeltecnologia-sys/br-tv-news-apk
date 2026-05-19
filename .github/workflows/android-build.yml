@@ -1,0 +1,627 @@
+name: Build BR TV NEWS APK
+
+on:
+  push:
+    branches:
+      - main
+      - principal
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-debug-apk:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.4"
+
+      - name: Generate clean Android project
+        run: |
+          set -e
+          rm -rf generated-android
+          mkdir -p generated-android/app/src/main/java/br/com/brtvnews/app
+          mkdir -p generated-android/app/src/main/res/values
+          mkdir -p generated-android/app/src/main/assets
+          mkdir -p generated-android/app/src/main/res/mipmap-mdpi
+          mkdir -p generated-android/app/src/main/res/mipmap-hdpi
+          mkdir -p generated-android/app/src/main/res/mipmap-xhdpi
+          mkdir -p generated-android/app/src/main/res/mipmap-xxhdpi
+          mkdir -p generated-android/app/src/main/res/mipmap-xxxhdpi
+
+          cat > generated-android/settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = 'BRTVNewsAPK'
+          include ':app'
+          EOF
+
+          cat > generated-android/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
+          }
+          EOF
+
+          cat > generated-android/gradle.properties <<'EOF'
+          org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat > generated-android/app/build.gradle <<'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'br.com.brtvnews.app'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId 'br.com.brtvnews.app'
+                  minSdk 23
+                  targetSdk 34
+                  versionCode 10
+                  versionName '1.1.0'
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+
+          cat > generated-android/app/src/main/res/values/strings.xml <<'EOF'
+          <resources>
+              <string name="app_name">BR TV NEWS</string>
+              <string name="app_description">Transmissão ao vivo dos principais canais de TV do Brasil e do mundo.</string>
+          </resources>
+          EOF
+
+          cat > generated-android/app/src/main/res/values/styles.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+                  <item name="android:windowNoTitle">true</item>
+                  <item name="android:windowActionBar">false</item>
+                  <item name="android:fontFamily">sans</item>
+                  <item name="android:statusBarColor">#000000</item>
+                  <item name="android:navigationBarColor">#000000</item>
+                  <item name="android:windowLightStatusBar">false</item>
+                  <item name="android:windowLightNavigationBar">false</item>
+              </style>
+          </resources>
+          EOF
+
+          cat > generated-android/app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+              <application
+                  android:allowBackup="true"
+                  android:hardwareAccelerated="true"
+                  android:usesCleartextTraffic="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher_round"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:theme="@style/AppTheme">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
+                      android:exported="true"
+                      android:screenOrientation="portrait">
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat > generated-android/app/src/main/assets/brtv_apk_bridge.js <<'EOF'
+          (function () {
+            if (window.__BRTV_FLASH_V10__) return;
+            window.__BRTV_FLASH_V10__ = true;
+
+            try {
+              localStorage.setItem('brtv_apk_mode', '1');
+              localStorage.setItem('apk_mode', '1');
+              localStorage.setItem('no_install_prompt', '1');
+              localStorage.setItem('pwa-install-dismissed', '1');
+              localStorage.setItem('brtv_flash_mode', '1');
+              sessionStorage.setItem('brtv_flash_mode', '1');
+            } catch (e) {}
+
+            window.addEventListener('beforeinstallprompt', function (event) {
+              try { event.preventDefault(); } catch (e) {}
+              return false;
+            }, true);
+
+            function ensureViewport() {
+              var meta = document.querySelector('meta[name="viewport"]');
+              if (!meta) {
+                meta = document.createElement('meta');
+                meta.setAttribute('name', 'viewport');
+                document.head.appendChild(meta);
+              }
+              meta.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover');
+            }
+
+            function injectStyle() {
+              ensureViewport();
+              if (document.getElementById('brtv-flash-v10-style')) return;
+
+              var style = document.createElement('style');
+              style.id = 'brtv-flash-v10-style';
+              style.innerHTML = [
+                'html,body{background:#000!important;margin:0!important;padding:0!important;width:100%!important;max-width:100%!important;overflow-x:hidden!important;}',
+                '::-webkit-scrollbar{display:none!important;width:0!important;height:0!important;}',
+                'img,video,iframe,embed,object{max-width:100%!important;}',
+                'video{background:#000!important;width:100%!important;height:auto!important;object-fit:contain!important;}',
+                'iframe{max-width:100%!important;width:100%!important;min-height:220px!important;background:#000!important;border:0!important;}',
+                '.container,.wrapper,.content,.main,.post,.post-body,.widget,.section,.Blog,.blog-posts,.main-wrapper,.content-wrapper,#main,#content,#page,.page,.outer-wrapper{max-width:100%!important;width:100%!important;margin-left:0!important;margin-right:0!important;box-sizing:border-box!important;float:none!important;}',
+                '.sidebar,.sidebar-wrapper,.right-sidebar,.left-sidebar,#sidebar,#sidebar-wrapper,aside,.footer,.footer-wrapper,#footer,.desktop-only,.adsbygoogle,.ad,.ads,.advertisement,[class*="sidebar" i],[id*="sidebar" i]{display:none!important;}',
+                '.apk-install,.install-app,.install-button,.pwa-install,.pwa-banner,.a2hs,.add-to-home,.add-to-home-screen,[id*="install" i],[class*="install" i],[id*="pwa" i],[class*="pwa" i],[id*="a2hs" i],[class*="a2hs" i]{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;}'
+              ].join('');
+              document.head.appendChild(style);
+            }
+
+            function tuneVideosOnce() {
+              try {
+                document.querySelectorAll('video').forEach(function (video) {
+                  video.preload = 'metadata';
+                  video.playsInline = true;
+                  video.setAttribute('playsinline', '');
+                  video.setAttribute('webkit-playsinline', '');
+                });
+              } catch (e) {}
+            }
+
+            function runFlash() {
+              injectStyle();
+              tuneVideosOnce();
+              try {
+                document.documentElement.classList.add('brtv-flash-v10');
+                if (document.body) document.body.classList.add('brtv-flash-v10');
+              } catch (e) {}
+            }
+
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', runFlash, { once: true });
+            }
+
+            runFlash();
+            setTimeout(runFlash, 350);
+            setTimeout(runFlash, 1200);
+          })();
+          EOF
+
+
+          cp app_icon/mipmap-mdpi/ic_launcher.png generated-android/app/src/main/res/mipmap-mdpi/ic_launcher.png
+          cp app_icon/mipmap-mdpi/ic_launcher_round.png generated-android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png
+          cp app_icon/mipmap-hdpi/ic_launcher.png generated-android/app/src/main/res/mipmap-hdpi/ic_launcher.png
+          cp app_icon/mipmap-hdpi/ic_launcher_round.png generated-android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png
+          cp app_icon/mipmap-xhdpi/ic_launcher.png generated-android/app/src/main/res/mipmap-xhdpi/ic_launcher.png
+          cp app_icon/mipmap-xhdpi/ic_launcher_round.png generated-android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png
+          cp app_icon/mipmap-xxhdpi/ic_launcher.png generated-android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+          cp app_icon/mipmap-xxhdpi/ic_launcher_round.png generated-android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+          cp app_icon/mipmap-xxxhdpi/ic_launcher.png generated-android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          cp app_icon/mipmap-xxxhdpi/ic_launcher_round.png generated-android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
+
+          cat > generated-android/app/src/main/java/br/com/brtvnews/app/MainActivity.java <<'EOF'
+          package br.com.brtvnews.app;
+
+          import android.annotation.SuppressLint;
+          import android.app.Activity;
+          import android.content.ActivityNotFoundException;
+          import android.content.Intent;
+          import android.graphics.Bitmap;
+          import android.graphics.Color;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.view.ViewGroup;
+          import android.view.Window;
+          import android.webkit.CookieManager;
+          import android.webkit.JsResult;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebResourceRequest;
+          import android.webkit.WebResourceResponse;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import android.widget.FrameLayout;
+          import android.widget.ProgressBar;
+          import android.widget.TextView;
+
+          import java.io.ByteArrayInputStream;
+          import java.io.ByteArrayOutputStream;
+          import java.io.InputStream;
+          import java.nio.charset.StandardCharsets;
+
+          public class MainActivity extends Activity {
+              private static final String FLASH_MOBILE_UA =
+                      "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 "
+                              + "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36 BR-TV-NEWS-FLASH/1.0";
+              private static final String START_URL = "https://www.correio101.com/?m=0&brtv_mobile_fix=1&canal=SBTSinop.br&pais=BR&categoria=general&apk=1&no_install=1&flash=1#watch";
+              private static final String FAST_MOBILE_UA =
+                      "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 "
+                              + "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+
+              private FrameLayout root;
+              private WebView webView;
+              private ProgressBar progressBar;
+              private TextView loadingText;
+              private View customView;
+              private WebChromeClient.CustomViewCallback customViewCallback;
+              private String bridgeScript;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  Window window = getWindow();
+                  window.setStatusBarColor(Color.BLACK);
+                  window.setNavigationBarColor(Color.BLACK);
+
+                  bridgeScript = loadAssetText("brtv_apk_bridge.js");
+
+                  createLayout();
+                  configureWebView();
+
+                  if (savedInstanceState != null) {
+                      webView.restoreState(savedInstanceState);
+                  } else {
+                      webView.loadUrl(START_URL);
+                  }
+              }
+
+              private void createLayout() {
+                  root = new FrameLayout(this);
+                  root.setBackgroundColor(Color.BLACK);
+
+                  webView = new WebView(this);
+                  webView.setBackgroundColor(Color.BLACK);
+                  webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+                  root.addView(webView, new FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.MATCH_PARENT
+                  ));
+
+                  loadingText = new TextView(this);
+                  loadingText.setText("BR TV NEWS");
+                  loadingText.setTextColor(Color.WHITE);
+                  loadingText.setTextSize(22);
+                  loadingText.setGravity(Gravity.CENTER);
+                  loadingText.setBackgroundColor(Color.BLACK);
+                  root.addView(loadingText, new FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          ViewGroup.LayoutParams.MATCH_PARENT
+                  ));
+
+                  progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+                  progressBar.setMax(100);
+                  progressBar.setProgress(0);
+                  FrameLayout.LayoutParams barParams = new FrameLayout.LayoutParams(
+                          ViewGroup.LayoutParams.MATCH_PARENT,
+                          dp(3)
+                  );
+                  barParams.gravity = Gravity.TOP;
+                  root.addView(progressBar, barParams);
+
+                  setContentView(root);
+              }
+
+              @SuppressLint("SetJavaScriptEnabled")
+              private void configureWebView() {
+                  WebSettings settings = webView.getSettings();
+                  settings.setJavaScriptEnabled(true);
+                  settings.setDomStorageEnabled(true);
+                  settings.setDatabaseEnabled(true);
+                  settings.setMediaPlaybackRequiresUserGesture(false);
+                  settings.setLoadsImagesAutomatically(true);
+                  settings.setUseWideViewPort(true);
+                  settings.setLoadWithOverviewMode(true);
+                  settings.setSupportZoom(false);
+                  settings.setBuiltInZoomControls(false);
+                  settings.setDisplayZoomControls(false);
+                  settings.setAllowFileAccess(false);
+                  settings.setAllowContentAccess(false);
+                  settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+                  settings.setUserAgentString(FLASH_MOBILE_UA);
+
+                  if (android.os.Build.VERSION.SDK_INT >= 21) {
+                      settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                      CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+                  }
+
+                  if (android.os.Build.VERSION.SDK_INT >= 23) {
+                      settings.setOffscreenPreRaster(true);
+                  }
+
+                  CookieManager.getInstance().setAcceptCookie(true);
+
+                  webView.setVerticalScrollBarEnabled(false);
+                  webView.setHorizontalScrollBarEnabled(false);
+                  webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+                  webView.setWebViewClient(new PortalClient());
+                  webView.setWebChromeClient(new PortalChromeClient());
+              }
+
+              private int dp(int value) {
+                  return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+              }
+
+              private String loadAssetText(String fileName) {
+                  try {
+                      InputStream input = getAssets().open(fileName);
+                      ByteArrayOutputStream output = new ByteArrayOutputStream();
+                      byte[] buffer = new byte[4096];
+                      int read;
+                      while ((read = input.read(buffer)) != -1) {
+                          output.write(buffer, 0, read);
+                      }
+                      input.close();
+                      return new String(output.toByteArray(), StandardCharsets.UTF_8);
+                  } catch (Exception e) {
+                      return "";
+                  }
+              }
+
+              private void injectBridge() {
+                  if (bridgeScript != null && !bridgeScript.isEmpty()) {
+                      webView.evaluateJavascript(bridgeScript, null);
+                  }
+              }
+
+              private class PortalClient extends WebViewClient {
+
+                  @Override
+                  public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                      if (request == null || request.getUrl() == null) {
+                          return super.shouldInterceptRequest(view, request);
+                      }
+
+                      String url = request.getUrl().toString().toLowerCase();
+
+                      if (shouldBlockFlashResource(url)) {
+                          return emptyResource();
+                      }
+
+                      return super.shouldInterceptRequest(view, request);
+                  }
+
+                  private boolean shouldBlockFlashResource(String url) {
+                      return url.contains("googlesyndication.com")
+                              || url.contains("doubleclick.net")
+                              || url.contains("google-analytics.com")
+                              || url.contains("googletagmanager.com")
+                              || url.contains("facebook.com/tr")
+                              || url.contains("connect.facebook.net")
+                              || url.contains("hotjar.com")
+                              || url.contains("clarity.ms")
+                              || url.contains("taboola.com")
+                              || url.contains("outbrain.com")
+                              || url.contains("/ads?")
+                              || url.contains("adsbygoogle")
+                              || url.contains("pagead/")
+                              || url.contains("analytics.js")
+                              || url.contains("gtag/js");
+                  }
+
+                  private WebResourceResponse emptyResource() {
+                      return new WebResourceResponse(
+                              "text/plain",
+                              "utf-8",
+                              new ByteArrayInputStream(new byte[0])
+                      );
+                  }
+
+                  @Override
+                  public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                      progressBar.setVisibility(View.VISIBLE);
+                      progressBar.setProgress(10);
+                      loadingText.setVisibility(View.VISIBLE);
+                  }
+
+                  @Override
+                  public void onPageFinished(WebView view, String url) {
+                      progressBar.setVisibility(View.GONE);
+                      loadingText.setVisibility(View.GONE);
+                      injectBridge();
+                  }
+
+                  @Override
+                  public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                      return handleUrl(url);
+                  }
+
+                  @Override
+                  public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                      return handleUrl(request.getUrl().toString());
+                  }
+
+                  private boolean handleUrl(String url) {
+                      if (url == null) return false;
+                      Uri uri = Uri.parse(url);
+                      String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
+                      if ("http".equals(scheme) || "https".equals(scheme)) {
+                          return false;
+                      }
+                      try {
+                          startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                      } catch (ActivityNotFoundException ignored) {}
+                      return true;
+                  }
+              }
+
+              private class PortalChromeClient extends WebChromeClient {
+                  @Override
+                  public void onProgressChanged(WebView view, int newProgress) {
+                      progressBar.setProgress(newProgress);
+                      progressBar.setVisibility(newProgress >= 100 ? View.GONE : View.VISIBLE);
+                      if (newProgress >= 45) { injectBridge(); }
+                      if (newProgress >= 35) {
+                          injectBridge();
+                      }
+                  }
+
+                  @Override
+                  public boolean onJsAlert(WebView view, String url, String message, JsResult result) {
+                      result.confirm();
+                      return true;
+                  }
+
+                  @Override
+                  public void onShowCustomView(View view, CustomViewCallback callback) {
+                      if (customView != null) {
+                          callback.onCustomViewHidden();
+                          return;
+                      }
+                      customView = view;
+                      customViewCallback = callback;
+                      webView.setVisibility(View.GONE);
+                      root.addView(customView, new FrameLayout.LayoutParams(
+                              ViewGroup.LayoutParams.MATCH_PARENT,
+                              ViewGroup.LayoutParams.MATCH_PARENT
+                      ));
+                  }
+
+                  @Override
+                  public void onHideCustomView() {
+                      hideCustomView();
+                  }
+              }
+
+              private void hideCustomView() {
+                  if (customView == null) return;
+                  root.removeView(customView);
+                  customView = null;
+                  webView.setVisibility(View.VISIBLE);
+                  if (customViewCallback != null) {
+                      customViewCallback.onCustomViewHidden();
+                      customViewCallback = null;
+                  }
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (customView != null) {
+                      hideCustomView();
+                  } else if (webView != null && webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+
+              @Override
+              protected void onPause() {
+                  if (webView != null) {
+                      webView.onPause();
+                      webView.pauseTimers();
+                  }
+                  super.onPause();
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  if (webView != null) {
+                      webView.resumeTimers();
+                      webView.onResume();
+                  }
+              }
+
+              @Override
+              protected void onSaveInstanceState(Bundle outState) {
+                  super.onSaveInstanceState(outState);
+                  if (webView != null) {
+                      webView.saveState(outState);
+                  }
+              }
+
+              @Override
+              protected void onDestroy() {
+                  if (webView != null) {
+                      try {
+                          webView.loadUrl("about:blank");
+                          webView.stopLoading();
+                          webView.setWebChromeClient(null);
+                          webView.setWebViewClient(null);
+                          webView.destroy();
+                      } catch (Exception ignored) {}
+                  }
+                  super.onDestroy();
+              }
+          }
+          EOF
+
+          echo "Generated project:"
+          find generated-android -maxdepth 6 -type f | sort
+
+      - name: Build debug APK
+        run: |
+          cd generated-android
+          gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Find generated APK
+        run: |
+          find generated-android -type f -name "*.apk" -print
+
+      - name: Prepare APK artifact
+        run: |
+          mkdir -p artifacts
+          cp generated-android/app/build/outputs/apk/debug/*.apk artifacts/
+          ls -la artifacts
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: br-tv-news-debug-apk
+          path: artifacts/*.apk
+          if-no-files-found: error

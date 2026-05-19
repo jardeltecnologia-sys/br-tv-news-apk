@@ -1,0 +1,30 @@
+BR TV NEWS APK V10 FLASH — MAIS LEVE E RÁPIDO
+
+Esta versão é baseada na V7/V9, mas remove a parte pesada.
+
+O que mudou:
+1. Sem varredura pesada da tela.
+2. Sem MutationObserver permanente.
+3. Sem setInterval infinito.
+4. Bloqueia anúncios/rastreadores nativamente no WebView.
+5. Mantém o portal real com ?m=0.
+6. Força responsivo de forma leve.
+7. Mantém ícone premium.
+8. Mantém botão instalar oculto.
+9. Mantém workflow que já ficou verde.
+
+COMO ENVIAR:
+
+1. Extraia este ZIP.
+2. Entre na pasta brtvnews.
+3. Na barra de endereço, digite: powershell
+4. Rode:
+
+   powershell -ExecutionPolicy Bypass -File .\ENVIAR_PARA_GITHUB.ps1
+
+5. Quando pedir URL, aperte ENTER.
+6. Abra:
+   https://github.com/jardeltecnologia-sys/br-tv-news-apk/actions
+
+7. Aguarde ficar verde.
+8. Baixe br-tv-news-debug-apk.
